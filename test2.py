@@ -8,15 +8,46 @@ from geometry_msgs.msg import Twist
 
 class Base(object):
     def __init__(self):
-        if not rospy.core.is_initialized():
-            rospy.init_node('base_node', anonymous=True)
-        
-        self._odom_sub = rospy.Subscriber('odom', Odometry, self._odom_callback)
-        self._vel_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
-        self.current_odom = None
+        self._odom_sub = rospy.Subscriber('odom', nav_msgs.msg.Odometry, callback=self._odom_callback)
+
 
     def _odom_callback(self, msg):
         self.current_odom = msg
+
+    def go_forward(self, distance, speed=0.1):
+        """Moves the robot a certain distance.
+        Args:
+            distance (float): The distance, in meters, to move.
+            speed (float): The speed to travel, in meters/second.
+        """
+        # Wait until the base has received at least one message on /odom
+        while self.current_odom is None:
+            rospy.sleep(0.1)
+        
+        # Record start position using deepcopy to avoid referencing the same object
+        start = copy.deepcopy(self.current_odom)
+        rate = rospy.Rate(10)  # 10 Hz
+        
+        while not rospy.is_shutdown():
+            if self.current_odom is None:
+                continue
+
+            # Calculate the current displacement
+            dx = self.current_odom.pose.pose.position.x - start.pose.pose.position.x
+            dy = self.current_odom.pose.pose.position.y - start.pose.pose.position.y
+            current_distance = (dx ** 2 + dy ** 2) ** 0.5  # Euclidean distance
+
+            # Check if the robot has traveled the desired distance
+            if (distance > 0 and current_distance >= distance) or (distance < 0 and current_distance <= distance):
+                break
+
+            # Determine the direction of travel
+            direction = -1 if distance < 0 else 1
+            self.move(direction * speed, 0)
+            rate.sleep()
+            
+        # Stop the robot after moving the desired distance
+        self.move(0, 0)
 
     def turn(self, angular_distance, speed=0.5):
         """Rotates the robot a certain angle.
